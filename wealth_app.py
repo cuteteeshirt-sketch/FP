@@ -1,28 +1,24 @@
 import streamlit as st
 import pandas as pd
 
-# 1. Page Config & Professional Theme
+# 1. Page Config
 st.set_page_config(page_title="Wealth Strategy", layout="wide")
 
-# Custom CSS for a "Nicest" look: Deep Blue/Slate theme
+# Custom CSS for the "Executive" Look
 st.markdown("""
     <style>
-    /* Main background */
     .stApp { background-color: #0e1117; color: #ffffff; }
-    /* Card-like styling for input areas */
-    div[data-testid="stExpander"] { border: 1px solid #30363d; border-radius: 10px; background-color: #161b22; }
-    /* Metric styling */
-    [data-testid="stMetricValue"] { color: #00d4ff; font-weight: bold; }
-    /* Table styling */
-    .dataframe { border: none !important; }
+    div[data-testid="stExpander"] { border: 1px solid #30363d; background-color: #161b22; }
+    [data-testid="stMetricValue"] { color: #00d4ff; }
+    /* Make the table text slightly larger and easier to read */
+    .dataframe { font-size: 14px !important; }
     </style>
     """, unsafe_allow_html=True)
 
 st.title("📈 Wealth Projection Strategy")
-st.caption("Multi-asset growth and inflation-adjusted valuation")
 
 # --- GLOBAL SETTINGS ---
-with st.expander("⚙️ Global Assumptions & Scenario", expanded=True):
+with st.expander("⚙️ Global Assumptions & Scenarios", expanded=True):
     set1, set2, set3 = st.columns(3)
     with set1:
         start_age = st.number_input("Current Age", value=50)
@@ -34,7 +30,7 @@ with st.expander("⚙️ Global Assumptions & Scenario", expanded=True):
         asset_names_list = [st.session_state.get(f"n{i}", f"Asset {i+1}") for i in range(5)]
         target_options = ["Aggregate Portfolio"] + asset_names_list
         scenario_target = st.selectbox("Scenario Target", target_options)
-        scenario_impact = st.number_input("ROR Adjustment % (e.g. -2.0)", value=0.0, step=0.5) / 100
+        scenario_impact = st.number_input("ROR Adjustment %", value=0.0, step=0.5) / 100
 
 # --- ASSET CONFIGURATION ---
 st.subheader("🏦 Asset Portfolio")
@@ -44,10 +40,14 @@ for i in range(5):
     with cols[i]:
         st.markdown(f"**Asset {i+1}**")
         name = st.text_input("Name", value=f"Asset {i+1}", key=f"n{i}")
-        # 'Step' adds arrows and makes it easy to jump by $10k
-        bal = st.number_input("Start Balance", value=100000, step=10000, key=f"b{i}", format="%d")
+        bal = st.number_input("Start Balance", value=100000, step=10000, key=f"b{i}")
+        # THIS IS THE FIX: Shows the formatted number right under the box
+        st.caption(f"Current: ${bal:,.0f}")
+        
         ror = st.number_input("Est. ROR %", value=7.0, step=0.5, key=f"r{i}") / 100
-        wd = st.number_input("Annual WD", value=0, step=1000, key=f"w{i}", format="%d")
+        wd = st.number_input("Annual WD", value=0, step=1000, key=f"w{i}")
+        st.caption(f"WD: ${wd:,.0f}")
+        
         assets.append({"name": name, "bal": bal, "ror": ror, "wd": wd})
 
 # --- CALCULATION ENGINE ---
@@ -56,7 +56,7 @@ current_balances = [a["bal"] for a in assets]
 
 for yr in range(years_to_project + 1):
     age = start_age + yr
-    row = {"Age": age, "Year": 2026 + yr}
+    row = {"Age": age}
     total_nominal = 0
     
     for i, asset in enumerate(assets):
@@ -71,9 +71,7 @@ for yr in range(years_to_project + 1):
         row[asset["name"]] = current_balances[i]
         total_nominal += current_balances[i]
     
-    # Simple net value and inflation adjustment
     real_val = total_nominal / ((1 + inflation) ** yr)
-    
     row["Portfolio Total"] = total_nominal
     row["Inflation Adj."] = real_val
     data.append(row)
@@ -82,25 +80,15 @@ df = pd.DataFrame(data)
 
 # --- VISUALS ---
 st.divider()
-c1, c2 = st.columns([2, 1])
+final_real = df["Inflation Adj."].iloc[-1]
+st.info(f"💡 At age {start_age + years_to_project}, your portfolio is worth **${final_real:,.0f}** in today's purchasing power.")
 
-with c1:
-    st.subheader("Portfolio Composition Over Time")
-    # Clean area chart
-    chart_cols = [a["name"] for a in assets]
-    st.area_chart(df.set_index("Age")[chart_cols])
+# CHART
+st.subheader("Visual Growth")
+chart_cols = [a["name"] for a in assets]
+# We use a built-in streamlit command that handles large numbers better
+st.area_chart(df.set_index("Age")[chart_cols])
 
-with c2:
-    st.subheader("Financial Milestones")
-    final_nominal = df["Portfolio Total"].iloc[-1]
-    final_real = df["Inflation Adj."].iloc[-1]
-    
-    # Metrics with comma separators (the : ,.0f part)
-    st.metric("Future Value (Nominal)", f"${final_nominal:,.0f}")
-    st.metric("Future Value (Real Today $)", f"${final_real:,.0f}")
-    st.info(f"At age {start_age + years_to_project}, your portfolio is worth ${final_real:,.0f} in today's purchasing power.")
-
-# --- FINAL TABLE ---
-st.subheader("📈 Detailed Annual Breakdown")
-# This formats every number in the table with commas and removes decimals
-st.dataframe(df.style.format("{:,.0f}"), use_container_width=True)
+# TABLE - This is the "Tidy" view with full commas
+st.subheader("📋 Annual Breakdown (Full Comma Formatting)")
+st.dataframe(df.set_index("Age").style.format("${:,.0f}"), use_container_width=True)
