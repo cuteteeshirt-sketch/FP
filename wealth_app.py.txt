@@ -1,0 +1,99 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+
+# Page Config
+st.set_page_config(page_title="Multi-Asset Wealth Projector", layout="wide")
+st.title("📈 Multi-Asset Wealth Projection Model")
+
+# --- SIDEBAR: GLOBAL SETTINGS ---
+st.sidebar.header("Global Settings")
+start_age = st.sidebar.number_input("Current Age", min_value=0, max_value=100, value=50)
+years_to_project = st.sidebar.slider("Years to Project", 1, 50, 30)
+inflation_rate = st.sidebar.number_input("Inflation Rate (%)", value=2.5) / 100
+tax_rate = st.sidebar.number_input("Effective Tax Rate (%)", value=15.0) / 100
+
+st.sidebar.header("Lump Sum Events")
+lump_sum_age = st.sidebar.number_input("Age of Event", value=65)
+lump_sum_amount = st.sidebar.number_input("Lump Sum Amount (+/-)", value=0)
+
+# --- ASSET INPUTS ---
+st.header("1. Asset Configuration")
+cols = st.columns(5)
+assets = []
+
+for i in range(5):
+    with cols[i]:
+        name = st.text_input(f"Asset {i+1} Name", value=f"Asset {i+1}")
+        balance = st.number_input(f"Start Balance", key=f"b{i}", value=100000)
+        ror = st.number_input(f"Annual ROR (%)", key=f"r{i}", value=7.0) / 100
+        withdraw = st.number_input(f"Annual Withdrawal", key=f"w{i}", value=0)
+        assets.append({"name": name, "balance": balance, "ror": ror, "withdraw": withdraw})
+
+# --- SCENARIO ANALYSIS ---
+st.header("2. Scenario Analysis")
+s_col1, s_col2 = st.columns(2)
+with s_col1:
+    target_options = ["Aggregate Portfolio"] + [a["name"] for a in assets]
+    scenario_target = st.selectbox("Apply Scenario To:", target_options)
+with s_col2:
+    scenario_impact = st.number_input("Scenario ROR Adjustment (% points)", value=0.0) / 100
+
+# --- CALCULATION ENGINE ---
+data = []
+current_balances = [a["balance"] for a in assets]
+
+for year in range(years_to_project + 1):
+    age = start_age + year
+    
+    # Apply Lump Sum to aggregate
+    lump_effect = lump_sum_amount if age == lump_sum_age else 0
+    
+    # Calculate each asset
+    row = {"Age": age, "Year": 2026 + year}
+    aggregate_nominal = 0
+    
+    for i, asset in enumerate(assets):
+        # Apply Scenario logic to ROR
+        active_ror = asset["ror"]
+        if scenario_target == asset["name"]:
+            active_ror += scenario_impact
+        elif scenario_target == "Aggregate Portfolio":
+            active_ror += scenario_impact
+            
+        # Growth - Withdrawal
+        if year > 0:
+            current_balances[i] = (current_balances[i] * (1 + active_ror)) - asset["withdraw"]
+            current_balances[i] = max(0, current_balances[i]) # Prevent negative
+            
+        row[asset["name"]] = current_balances[i]
+        aggregate_nominal += current_balances[i]
+    
+    # Aggregate Adjustments
+    aggregate_nominal += lump_effect
+    tax_hit = (aggregate_nominal - sum([a["balance"] for a in assets])) * tax_rate if aggregate_nominal > sum([a["balance"] for a in assets]) else 0
+    net_nominal = aggregate_nominal - max(0, tax_hit)
+    
+    # Inflation adjustment (Real Value)
+    real_value = net_nominal / ((1 + inflation_rate) ** year)
+    
+    row["Aggregate (Nominal)"] = net_nominal
+    row["Real Wealth (Inflation Adj)"] = real_value
+    data.append(row)
+
+df = pd.DataFrame(data)
+
+# --- VISUALIZATION ---
+st.header("3. Projections")
+tab1, tab2 = st.tabs(["Charts", "Data Table"])
+
+with tab1:
+    st.subheader("Portfolio Growth by Asset")
+    chart_cols = [a["name"] for a in assets]
+    st.area_chart(df.set_index("Age")[chart_cols])
+    
+    st.subheader("Nominal vs. Real Wealth (Inflation Adjusted)")
+    st.line_chart(df.set_index("Age")[["Aggregate (Nominal)", "Real Wealth (Inflation Adj)"]])
+
+with tab2:
+    st.dataframe(df.style.format(precision=0, thousands=","))
